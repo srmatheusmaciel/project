@@ -1,4 +1,3 @@
-version: '3.8'  # Adicione esta linha se a versão for importante
 
 services:
   backend:
