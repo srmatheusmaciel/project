@@ -10,6 +10,8 @@ CORS(app)  # Habilita o CORS para permitir requisições do frontend
 client = MongoClient('mongodb://mongo:27017/')
 db = client.ongdb  # Conecta ao banco de dados chamado "ongdb"
 patients_collection = db.patients  # Conecta à coleção "patients"
+employees_collection = db.employees  # Conecta à coleção "employees"
+#services_collection = db.services  # Conecta à coleção "services"
 
 # Rota para listar todos os serviços
 @app.route('/services', methods=['GET'])
@@ -19,6 +21,8 @@ def get_services():
         service['_id'] = str(service['_id'])  # Converte ObjectId para string
         
     return jsonify(services), 200
+
+#------------- SERVIÇOS --------------    
 
 # Rota para adicionar um novo serviço
 @app.route('/services', methods=['POST'])
@@ -57,6 +61,8 @@ def update_service(service_id):
         return jsonify({"message": "Serviço atualizado com sucesso"}), 200
     return jsonify({"error": "Serviço não encontrado"}), 404
 
+
+# ---------------- PACIENTES ---------------- 
 
 # Rota para adicionar um novo paciente
 @app.route('/patients', methods=['POST'])
@@ -98,6 +104,53 @@ def update_patient(patient_id):
     if result.modified_count > 0:
         return jsonify({"message": "Paciente atualizado com sucesso"}), 200
     return jsonify({"error": "Paciente não encontrado"}), 404    
+
+
+# ---------------- FUNCIONÁRIOS ----------------
+
+# Rota para listar todos os funcionários
+@app.route('/employees', methods=['GET'])
+def get_employees():
+    employees = list(employees_collection.find({}))  # Recupera todos os funcionários do MongoDB
+    for employee in employees:
+        employee['_id'] = str(employee['_id'])  # Converte ObjectId para string
+    return jsonify(employees), 200
+
+# Rota para adicionar um novo funcionário
+@app.route('/employees', methods=['POST'])
+def add_employee():
+    new_employee = request.get_json()
+    new_employee['date_hired'] = datetime.now()  # Adiciona a data de contratação como a data atual
+    result = employees_collection.insert_one(new_employee)  # Insere o novo funcionário no MongoDB
+    return jsonify({"message": "Funcionário adicionado com sucesso", "id": str(result.inserted_id)}), 201
+
+# Rota para visualizar detalhes de um funcionário específico
+@app.route('/employees/<employee_id>', methods=['GET'])
+def get_employee_details(employee_id):
+    employee = employees_collection.find_one({"_id": ObjectId(employee_id)})
+    if employee:
+        employee['_id'] = str(employee['_id'])
+        employee['date_hired'] = employee['date_hired'].strftime('%Y-%m-%d %H:%M:%S')  # Formata a data para string
+        return jsonify(employee), 200
+    return jsonify({"error": "Funcionário não encontrado"}), 404
+
+# Rota para remover um funcionário do MongoDB
+@app.route('/employees/<employee_id>', methods=['DELETE'])
+def delete_employee(employee_id):
+    result = employees_collection.delete_one({"_id": ObjectId(employee_id)})
+    if result.deleted_count > 0:
+        return jsonify({"message": "Funcionário deletado com sucesso"}), 200
+    return jsonify({"error": "Funcionário não encontrado"}), 404
+
+# Rota para atualizar um funcionário
+@app.route('/employees/<employee_id>', methods=['PUT'])
+def update_employee(employee_id):
+    updated_data = request.get_json()
+    result = employees_collection.update_one({"_id": ObjectId(employee_id)}, {"$set": updated_data})
+    if result.modified_count > 0:
+        return jsonify({"message": "Funcionário atualizado com sucesso"}), 200
+    return jsonify({"error": "Funcionário não encontrado"}), 404
+  
 
 
 if __name__ == '__main__':
