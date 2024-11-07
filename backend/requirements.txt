@@ -2,3 +2,4 @@ Flask==2.3.3
 Flask-RESTful==0.3.9
 pymongo==4.1.1
 pyjwt
+Flask-CORS==3.0.10
