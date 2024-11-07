@@ -12,6 +12,14 @@ db = client.ongdb  # Conecta ao banco de dados chamado "ongdb"
 patients_collection = db.patients  # Conecta à coleção "patients"
 employees_collection = db.employees  # Conecta à coleção "employees"
 #services_collection = db.services  # Conecta à coleção "services"
+reports_collection = db.reports  # Conecta à coleção "reports"
+
+
+
+
+
+
+#------------- SERVIÇOS --------------    
 
 # Rota para listar todos os serviços
 @app.route('/services', methods=['GET'])
@@ -21,8 +29,6 @@ def get_services():
         service['_id'] = str(service['_id'])  # Converte ObjectId para string
         
     return jsonify(services), 200
-
-#------------- SERVIÇOS --------------    
 
 # Rota para adicionar um novo serviço
 @app.route('/services', methods=['POST'])
@@ -150,7 +156,52 @@ def update_employee(employee_id):
     if result.modified_count > 0:
         return jsonify({"message": "Funcionário atualizado com sucesso"}), 200
     return jsonify({"error": "Funcionário não encontrado"}), 404
-  
+
+# ---------------- RELATÓRIOS ----------------
+    
+# Rota para listar todos os relatórios
+@app.route('/reports', methods=['GET'])
+def get_reports():
+    reports = list(reports_collection.find({}))  # Recupera todos os relatórios do MongoDB
+    for report in reports:
+        report['_id'] = str(report['_id'])  # Converte ObjectId para string
+    return jsonify(reports), 200
+
+# Rota para adicionar um novo relatório
+@app.route('/reports', methods=['POST'])
+def add_report():
+    new_report = request.get_json()
+    new_report['data_geracao'] = datetime.now()  # Adiciona a data de geração atual
+
+    result = reports_collection.insert_one(new_report)  # Insere o novo relatório no MongoDB
+    return jsonify({"message": "Relatório adicionado com sucesso", "id": str(result.inserted_id)}), 201
+
+# Rota para visualizar detalhes de um relatório específico
+@app.route('/reports/<report_id>', methods=['GET'])
+def get_report_details(report_id):
+    report = reports_collection.find_one({"_id": ObjectId(report_id)})
+    if report:
+        report['_id'] = str(report['_id'])
+        report['data_geracao'] = report['data_geracao'].strftime('%Y-%m-%d %H:%M:%S')  # Formata a data para string
+        return jsonify(report), 200
+    return jsonify({"error": "Relatório não encontrado"}), 404
+
+# Rota para remover um relatório do MongoDB
+@app.route('/reports/<report_id>', methods=['DELETE'])
+def delete_report(report_id):
+    result = reports_collection.delete_one({"_id": ObjectId(report_id)})
+    if result.deleted_count > 0:
+        return jsonify({"message": "Relatório deletado com sucesso"}), 200
+    return jsonify({"error": "Relatório não encontrado"}), 404
+
+# Rota para atualizar um relatório
+@app.route('/reports/<report_id>', methods=['PUT'])
+def update_report(report_id):
+    updated_data = request.get_json()
+    result = reports_collection.update_one({"_id": ObjectId(report_id)}, {"$set": updated_data})
+    if result.modified_count > 0:
+        return jsonify({"message": "Relatório atualizado com sucesso"}), 200
+    return jsonify({"error": "Relatório não encontrado"}), 404  
 
 
 if __name__ == '__main__':
