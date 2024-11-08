@@ -3,6 +3,7 @@ from pymongo import MongoClient
 from bson.objectid import ObjectId
 from flask_cors import CORS
 from datetime import datetime  # Importando para manipular datas
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app)  # Habilita o CORS para permitir requisições do frontend
@@ -11,11 +12,90 @@ client = MongoClient('mongodb://mongo:27017/')
 db = client.ongdb  # Conecta ao banco de dados chamado "ongdb"
 patients_collection = db.patients  # Conecta à coleção "patients"
 employees_collection = db.employees  # Conecta à coleção "employees"
-#services_collection = db.services  # Conecta à coleção "services"
 reports_collection = db.reports  # Conecta à coleção "reports"
+users_collection = db.users  # Conecta à coleção "users"
 
 
+#------------- USUÁRIOS --------------
 
+# Rota para adicionar um novo usuário
+@app.route('/users', methods=['POST'])
+def add_user():
+    data = request.get_json()
+    hashed_password = generate_password_hash(data['password'])
+    new_user = {
+        "nome": data['nome'],
+        "email": data['email'],
+        "password": hashed_password,
+        "tipo": data.get('tipo', 'comum')  # Define o tipo de usuário, 'admin' ou 'comum'
+    }
+    result = users_collection.insert_one(new_user)
+    return jsonify({"message": "Usuário adicionado com sucesso", "id": str(result.inserted_id)}), 201
+
+# Rota para listar todos os usuários
+@app.route('/users', methods=['GET'])
+def get_users():
+    users = list(users_collection.find({}))
+    for user in users:
+        user['_id'] = str(user['_id'])
+    return jsonify(users), 200    
+
+# Rota para visualizar detalhes de um usuário específico
+@app.route('/users/<user_id>', methods=['GET'])
+def get_user(user_id):
+    user = users_collection.find_one({"_id": ObjectId(user_id)})
+    if user:
+        user['_id'] = str(user['_id'])
+        return jsonify(user), 200
+    return jsonify({"error": "Usuário não encontrado"}), 404
+
+
+# Rota para atualizar um usuário
+# Rota para atualizar um usuário
+@app.route('/users/<user_id>', methods=['PUT'])
+def update_user(user_id):
+    data = request.get_json()
+    updated_data = {}
+
+    # Verifica e atualiza apenas os campos fornecidos no JSON
+    if 'nome' in data:
+        updated_data['nome'] = data['nome']
+    if 'email' in data:
+        updated_data['email'] = data['email']
+    if 'password' in data:
+        updated_data['password'] = generate_password_hash(data['password'])
+    if 'tipo' in data:
+        updated_data['tipo'] = data['tipo']  # Atualiza o tipo do usuário, se fornecido
+
+    # Verifica se existe algum campo para atualizar
+    if updated_data:
+        result = users_collection.update_one({"_id": ObjectId(user_id)}, {"$set": updated_data})
+        if result.modified_count > 0:
+            return jsonify({"message": "Usuário atualizado com sucesso"}), 200
+        else:
+            return jsonify({"message": "Nenhuma modificação realizada"}), 200
+    else:
+        return jsonify({"error": "Nenhum dado fornecido para atualização"}), 400
+
+ # Rota para deletar um usuário
+@app.route('/users/<user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    result = users_collection.delete_one({"_id": ObjectId(user_id)})
+    if result.deleted_count > 0:
+        return jsonify({"message": "Usuário deletado com sucesso"}), 200
+    return jsonify({"error": "Usuário não encontrado"}), 404   
+
+
+#------------- LOGIN -----------------
+
+# Rota de login para verificar credenciais
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    user = users_collection.find_one({"email": data['email']})
+    if user and check_password_hash(user['password'], data['password']):
+        return jsonify({"message": "Login bem-sucedido", "tipo": user['tipo']}), 200
+    return jsonify({"error": "Credenciais inválidas"}), 401
 
 
 
@@ -45,7 +125,10 @@ def get_service_details(service_id):
     service = db.services.find_one({"_id": ObjectId(service_id)})
     if service:
         service['_id'] = str(service['_id'])
-        service['date'] = service['date'].strftime('%Y-%m-%d %H:%M:%S')  # Formata a data para string
+        # Verifica se 'date' é um objeto datetime antes de formatar
+        if isinstance(service.get('date'), datetime):
+            service['date'] = service['date'].strftime('%Y-%m-%d %H:%M:%S')
+        # Caso 'date' seja uma string, deixa como está ou faz outra verificação necessária
 
         return jsonify(service), 200
     return jsonify({"error": "Serviço não encontrado"}), 404
