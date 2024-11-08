@@ -4,7 +4,7 @@ Este projeto é um sistema CRUD desenvolvido com Flask e MongoDB, que permite ge
 
 ## Estrutura do Projeto
 
-- `app.py`: Arquivo principal da aplicação, contém todas as rotas CRUD para `patients`, `employees`, `services` e `reports`.
+- `app.py`: Arquivo principal da aplicação, contém todas as rotas CRUD para `patients`, `employees`, `services`, `reports` e `users`.
 - `docker-compose.yml`: Arquivo de configuração do Docker Compose para iniciar o MongoDB no Docker.
 - Banco de Dados: MongoDB configurado para rodar na porta `27017` dentro do Docker.
 
