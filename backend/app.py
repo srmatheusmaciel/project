@@ -17,7 +17,10 @@ patients_collection = db.patients  # Conecta à coleção "patients"
 employees_collection = db.employees  # Conecta à coleção "employees"
 reports_collection = db.reports  # Conecta à coleção "reports"
 users_collection = db.users  # Conecta à coleção "users"
+services_collection = db.services  # Coleção de serviços
 
+# Taxa de comissão (exemplo de 10% do valor do serviço)
+COMMISSION_RATE = 0.10
 
 #------------- USUÁRIOS --------------
 
@@ -103,13 +106,29 @@ def login():
 
 #------------- SERVIÇOS --------------    
 
+# Função para converter todos os ObjectId para string
+def convert_objectid(obj):
+    if isinstance(obj, ObjectId):
+        return str(obj)
+    if isinstance(obj, dict):
+        return {k: convert_objectid(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [convert_objectid(item) for item in obj]
+    return obj
+
+#------------- SERVIÇOS --------------    
+
 # Rota para listar todos os serviços
 @app.route('/services', methods=['GET'])
 def get_services():
     services = list(db.services.find({}))  # Recupera todos os serviços do MongoDB
-    for service in services:
-        service['_id'] = str(service['_id'])  # Converte ObjectId para string
-        
+    services = [convert_objectid(service) for service in services]  # Converte todos os ObjectId para string
+
+    # Garantir a codificação correta da resposta JSON
+    response = jsonify(services)
+    response.headers['Content-Type'] = 'application/json; charset=utf-8'
+
+
     return jsonify(services), 200
 
 # Rota para adicionar um novo serviço
@@ -128,7 +147,7 @@ def add_service():
     return jsonify(str(result.inserted_id)), 201
 
 
-#--------- ATRIBUIR SERVICES ---------------
+#--------- ATRIBUIR SERVIÇO ---------------
 # Rota para atribuir um serviço a um funcionário e um paciente
 @app.route('/assign_service', methods=['POST'])
 def atribuir_servico():
@@ -136,11 +155,13 @@ def atribuir_servico():
     service_id = data["service_id"]
     employee_id = data["employee_id"]
     patient_id = data["patient_id"]
+    report_id = data.get("report_id")  # ID do relatório, caso seja fornecido
 
     try:
         service = db.services.find_one({"_id": ObjectId(service_id)})
         employee = db.employees.find_one({"_id": ObjectId(employee_id)})
         patient = db.patients.find_one({"_id": ObjectId(patient_id)})
+        report = db.reports.find_one({"_id": ObjectId(report_id)}) if report_id else None
     except Exception as e:
         return jsonify({"message": f"Erro na busca: {str(e)}"}), 400
 
@@ -157,12 +178,29 @@ def atribuir_servico():
         {"$set": {"employee_id": ObjectId(employee_id), "patient_id": ObjectId(patient_id)}}
     )
 
-    return jsonify({"message": "Serviço atribuído com sucesso"}), 200
+    # Calcular a comissão (exemplo: 10% do valor do serviço)
+    commission = service.get("preco", 0) * COMMISSION_RATE  # Valor da comissão (10%)
+
+    if report:  # Se o relatório for fornecido, atribuir a comissão ao funcionário no relatório
+        db.reports.update_one(
+            {"_id": ObjectId(report_id)},
+            {
+                "$push": {
+                    "servicos": {
+                        "service_id": service_id,
+                        "employee_id": employee_id,
+                        "commission": commission
+                    }
+                },
+                "$inc": {f"comissoes.{employee_id}": commission}  # Incrementa a comissão total do funcionário
+            }
+        )
+
+    return jsonify({"message": "Serviço atribuído com sucesso e comissão gerada", "comissao": commission}), 200
 
  
 
 # Rota para visualizar detalhes de um serviço específico
-@app.route('/services/<service_id>', methods=['GET'])
 @app.route('/services/<service_id>', methods=['GET'])
 def get_service(service_id):
     # Procurar o serviço no banco de dados usando o id fornecido
@@ -312,32 +350,131 @@ def update_employee(employee_id):
 
 # ---------------- RELATÓRIOS ----------------
     
-# Rota para listar todos os relatórios
-@app.route('/reports', methods=['GET'])
-def get_reports():
-    reports = list(reports_collection.find({}))  # Recupera todos os relatórios do MongoDB
-    for report in reports:
-        report['_id'] = str(report['_id'])  # Converte ObjectId para string
-    return jsonify(reports), 200
+
+
+# Função auxiliar para calcular comissões dos funcionários
+def calcular_comissao(servicos, comissao_percentual=0.1):
+    comissoes = {}
+    for servico in servicos:
+        funcionario_id = servico['funcionario_id']
+        valor_servico = servico['preco']
+        comissao = valor_servico * comissao_percentual
+        
+        if funcionario_id not in comissoes:
+            comissoes[funcionario_id] = 0
+        comissoes[funcionario_id] += comissao
+    return comissoes
 
 # Rota para adicionar um novo relatório
 @app.route('/reports', methods=['POST'])
 def add_report():
-    new_report = request.get_json()
-    new_report['data_geracao'] = datetime.now()  # Adiciona a data de geração atual
+    data = request.get_json()
+    data_inicio = datetime.strptime(data['data_inicio'], '%Y-%m-%d')
+    data_fim = datetime.strptime(data['data_fim'], '%Y-%m-%d')
+    
+    # Buscar serviços realizados no período específico
+    servicos = list(services_collection.find({
+        'data': {'$gte': data_inicio, '$lte': data_fim}
+    }))
+    
+    # Coletar IDs de pacientes e funcionários únicos para o relatório
+    pacientes_ids = list({servico['paciente_id'] for servico in servicos})
+    funcionarios_ids = list({servico['funcionario_id'] for servico in servicos})
+    
+    # Adicionar dados financeiros e calcular comissões
+    total_receita = sum(servico['preco'] for servico in servicos)
+    comissoes = calcular_comissao(servicos)
 
-    result = reports_collection.insert_one(new_report)  # Insere o novo relatório no MongoDB
+    # Criar documento do relatório
+    novo_relatorio = {
+        'data_geracao': datetime.now(),
+        'data_inicio': data_inicio,
+        'data_fim': data_fim,
+        'servicos': [{'servico_id': str(servico['_id']), 'tipo': servico['tipo_servico']} for servico in servicos],
+        'pacientes': pacientes_ids,
+        'funcionarios': funcionarios_ids,
+        'total_receita': total_receita,
+        'comissoes': comissoes
+    }
+
+    # Inserir relatório na coleção
+    result = reports_collection.insert_one(novo_relatorio)
+    
+    # Relacionar relatório com funcionários para comissões
+    for funcionario_id in funcionarios_ids:
+        funcionario_relatorio_collection.insert_one({
+            'funcionario_id': funcionario_id,
+            'relatorio_id': result.inserted_id
+        })
+
     return jsonify({"message": "Relatório adicionado com sucesso", "id": str(result.inserted_id)}), 201
 
-# Rota para visualizar detalhes de um relatório específico
+    # Rota para buscar todos os relatórios
+@app.route('/reports', methods=['GET'])
+def list_reports():  # Nome da função alterado para evitar conflitos
+    reports = []
+    for report in reports_collection.find():
+        report_data = {
+            'id': str(report['_id']),
+            'data_geracao': report.get('data_geracao'),
+            'data_inicio': report.get('data_inicio'),
+            'data_fim': report.get('data_fim'),
+            'total_receita': report.get('total_receita', 0),
+            'comissoes': report.get('comissoes', {}),
+            'servicos': []
+        }
+        
+        # Recuperar detalhes de cada serviço
+        for servico in report.get('servicos', []):
+            servico_detalhes = services_collection.find_one({"_id": ObjectId(servico['servico_id'])})
+            if servico_detalhes:
+                paciente = patients_collection.find_one({"_id": servico_detalhes.get('paciente_id')})
+                funcionario = employees_collection.find_one({"_id": servico_detalhes.get('funcionario_id')})
+                report_data['servicos'].append({
+                    'servico_id': str(servico_detalhes['_id']),
+                    'tipo': servico_detalhes.get('tipo_servico'),
+                    'preco': servico_detalhes.get('preco'),
+                    'paciente': paciente['nome'] if paciente else None,
+                    'funcionario': funcionario['nome'] if funcionario else None
+                })
+        
+        reports.append(report_data)
+    
+    return jsonify(reports), 200
+
+# Rota para buscar um relatório específico por ID
 @app.route('/reports/<report_id>', methods=['GET'])
-def get_report_details(report_id):
+def get_report(report_id):
     report = reports_collection.find_one({"_id": ObjectId(report_id)})
-    if report:
-        report['_id'] = str(report['_id'])
-        report['data_geracao'] = report['data_geracao'].strftime('%Y-%m-%d %H:%M:%S')  # Formata a data para string
-        return jsonify(report), 200
-    return jsonify({"error": "Relatório não encontrado"}), 404
+    if not report:
+        return jsonify({"error": "Relatório não encontrado"}), 404
+
+    report_data = {
+        'id': str(report['_id']),
+        'data_geracao': report.get('data_geracao'),
+        'data_inicio': report.get('data_inicio'),
+        'data_fim': report.get('data_fim'),
+        'total_receita': report.get('total_receita', 0),
+        'comissoes': report.get('comissoes', {}),
+        'servicos': []
+    }
+
+    # Recuperar detalhes de cada serviço
+    for servico in report.get('servicos', []):
+        servico_detalhes = services_collection.find_one({"_id": ObjectId(servico['servico_id'])})
+        if servico_detalhes:
+            paciente = patients_collection.find_one({"_id": servico_detalhes.get('paciente_id')})
+            funcionario = employees_collection.find_one({"_id": servico_detalhes.get('funcionario_id')})
+            report_data['servicos'].append({
+                'servico_id': str(servico_detalhes['_id']),
+                'tipo': servico_detalhes.get('tipo_servico'),
+                'preco': servico_detalhes.get('preco'),
+                'paciente': paciente['nome'] if paciente else None,
+                'funcionario': funcionario['nome'] if funcionario else None
+            })
+    
+    return jsonify(report_data), 200
+
 
 # Rota para remover um relatório do MongoDB
 @app.route('/reports/<report_id>', methods=['DELETE'])
