@@ -30,6 +30,8 @@ Este projeto é um sistema CRUD desenvolvido com Flask e MongoDB, que permite ge
    ```
   3. **Configurar o Docker e MongoDB**
    ```bash
+ 
+  docker-compose build
   docker-compose up -d
 
 
